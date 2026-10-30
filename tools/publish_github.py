@@ -102,6 +102,11 @@ def collect_files(root):
     return sorted(out)
 
 
+def _norm(b):
+    """比较文本用：统一行尾、去掉尾部空白。"""
+    return b.replace(b"\r\n", b"\n").rstrip()
+
+
 def git_blob_sha(path):
     """本地算 git blob sha，和远端 tree 对比就能跳过没变的文件。"""
     with open(path, "rb") as f:
@@ -189,8 +194,8 @@ def main():
                 try:
                     rb = api("GET", "/repos/%s/%s/git/blobs/%s"
                              % (OWNER, REPO_NAME, remote[rel]), tries=4)
-                    same = base64.b64decode(rb["content"]).rstrip() == \
-                        open(full, "rb").read().rstrip()
+                    same = _norm(base64.b64decode(rb["content"])) == \
+                        _norm(open(full, "rb").read())
                 except RuntimeError:
                     same = False
                 if not same:

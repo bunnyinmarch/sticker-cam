@@ -181,6 +181,14 @@ def main():
     tree_sha = r["sha"]
     print("[6] tree: %s（%d 个文件）" % (tree_sha, len(tree)))
 
+    # 树没变就不要再造一个同内容的 commit，否则每次都会白白触发一次 Pages 重建
+    cur = api("GET", "/repos/%s/%s/git/commits/%s" % (OWNER, REPO_NAME, base_sha), tries=6)
+    if cur.get("tree", {}).get("sha") == tree_sha:
+        print("[7] 内容与远端完全一致，跳过提交")
+        print("[8] main 无需更新")
+        print("\n站点地址: https://%s.github.io/%s/" % (OWNER, REPO_NAME))
+        return 0
+
     r = api("POST", "/repos/%s/%s/git/commits" % (OWNER, REPO_NAME), {
         "message": "更新贴纸相机",
         "tree": tree_sha,

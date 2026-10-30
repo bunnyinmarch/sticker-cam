@@ -198,7 +198,8 @@ def main():
                 {"source": {"branch": "main", "path": "/"}}, tries=4)
         print("[9] Pages 已开启: %s" % r.get("html_url"))
     except RuntimeError as e:
-        if "already exists" in str(e).lower():
+        low = str(e).lower()
+        if "already exists" in low or "already enabled" in low:
             print("[9] Pages 已存在")
         else:
             print("[9] API 开 Pages 失败（需网页点一下）: %s" % e)

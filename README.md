@@ -205,7 +205,8 @@ document.getElementById('backHeart').addEventListener('click', () => {
 
 整站是纯静态的，把 `sticker-camera/` 整个目录上传到任意静态托管即可，**不需要构建**：
 
-- GitHub Pages：推到仓库 → Settings → Pages → 选分支根目录
+- GitHub Pages：推到仓库 → Settings → Pages → Source 选 **GitHub Actions**
+  （本仓库已内置 `.github/workflows/pages.yml`，push 到 `main` 会自动部署）
 - Vercel / Netlify：拖目录上去即可
 - 自建 Nginx：把目录扔进 `html/` 即可
 
@@ -239,6 +240,9 @@ python tools\publish_github.py           # 推送更新到 GitHub 并刷新 Page
 >
 > `tools/publish_github.py` 走 GitHub REST API 直推，**不需要本机装 git 或 gh**。
 > 首次使用先跑 `tools/gh_auth.py` 拿一个设备码授权（token 落在 `tools/.gh_token`，已被 `.gitignore` 排除）。
+> 脚本只上传**内容有变化**的文件（本地算 git blob sha 和远端比对），没变的不重传；
+> 内容与远端完全一致时会直接跳过提交，不会白触发一次 Pages 重建。
+> 连续推送容易撞上 GitHub 的**二级速率限制**（`secondary rate limit`），脚本会自动退避重试。
 
 ### 抠图算法（`tools/cut_stickers.py`）
 

@@ -38,6 +38,22 @@ python tools\publish_github.py
 - `publish_github.py` 走 `api.github.com` 的 Contents / Blobs / Trees / Commits / Refs / Pages 接口
 - **坑**：Blobs API 在**完全空的仓库**上会返回 `409 Git Repository is empty.`，
   所以脚本先用 Contents API 推一个 `.gitkeep` 引导文件把 `main` 分支建出来，再走 blob 流程
+- 脚本只上传**内容有变化**的文件（本地算 git blob sha 与远端比对），
+  内容完全一致时直接跳过提交，不白触发一次 Pages 重建
+- 连续推送容易撞上 GitHub **二级速率限制**（`secondary rate limit`），脚本会自动退避重试
+
+### 部署方式：GitHub Actions
+
+仓库内置 `.github/workflows/pages.yml`：
+
+- `push` 到 `main` → 自动把 `index.html / embed.html / styles.css / js / assets`
+  打包成 artifact 部署到 GitHub Pages
+- `tools/` 和文档不进产物，线上只暴露站点本身
+- 手动触发：Actions 页 → *Deploy to GitHub Pages* → *Run workflow*
+
+> 仓库 Settings → Pages → Source 需选 **GitHub Actions**。
+> 早先用 "Deploy from a branch"（legacy Jekyll 构建器）已不稳定，
+> 同样是内容、构建却会随机 `Page build failed.`，换 Actions 后构建过程可读、可重跑。
 
 ---
 
@@ -121,13 +137,15 @@ git push -u origin main
 
 打开 `https://github.com/<你的用户名>/sticker-cam/settings/pages`：
 
-- **Build and deployment → Source**：选 **Deploy from a branch**
-- **Branch**：选 **main**，**Folder** 选 **/ (root)**
+- **Build and deployment → Source**：选 **GitHub Actions**
+- 仓库里已经带了 `.github/workflows/pages.yml`，push 到 `main` 就会自动部署
 - 点 **Save**
 
 等 1～3 分钟，页面顶部会出现：
 
 > Your site is live at https://<你的用户名>.github.io/sticker-cam/
+
+> 想看部署进度：仓库 **Actions** 页 → *Deploy to GitHub Pages* → 点进某次运行看日志。
 
 ---
 
@@ -160,7 +178,9 @@ Pages 会自动重新发布，**链接不变**，等 1～2 分钟生效。
 
 | 现象 | 原因 / 解决 |
 | --- | --- |
-| 打开是 404 | Pages 的 Source 没设成 `main` / `/ (root)`；或者还在构建，等 1～3 分钟 |
+| 打开是 404 | Pages 的 Source 没设成 **GitHub Actions**；或者还在构建，等 1～3 分钟 |
+| 构建报 `Page build failed.` | 老式 "Deploy from a branch"（legacy Jekyll）构建器不稳，换成 **GitHub Actions** 即可（仓库已带 workflow） |
+| 推送报 `secondary rate limit` | 连着推太多次触发 GitHub 限流，等几分钟再推；脚本已内置退避重试 |
 | 摄像头起不来 | 必须是 https。Pages 自带 https；若你是本地 `http://` 测试则需要 `localhost` |
 | 首屏很慢、一直转圈 | 首次要下 9 MB wasm + 7.5 MB 手部模型，模型是摄像头就绪后才懒加载的，等一会儿就好 |
 | 贴纸不出现 | 确认页面顶部没有红条提示模型加载失败；手势要在**绿框里**做 |

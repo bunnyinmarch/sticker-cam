@@ -1,20 +1,27 @@
-"""把本地静态站推到 GitHub 并开启 GitHub Pages（不需要安装 git/gh）。
+"""把本地静态站推到 GitHub，并触发 GitHub Actions 自动部署到 Pages（不需要安装 git/gh）。
 
 用法：
     python tools\\gh_auth.py          # 先授权，token 存到 tools/.gh_token
-    python tools\\publish_github.py   # 建仓库 + 推文件 + 开 Pages
+    python tools\\publish_github.py   # 增量推送 + 触发部署
 
 全程走 GitHub REST API（api.github.com）：
 
-  A. Contents API 引导（.gitkeep）-> 建出 main 分支
-  B. Blobs API 逐个上传（并发）
-  C. Trees API 组树
+  A. 读 main 当前 commit 及其 tree（作为 base_tree）
+  B. 本地算 git blob sha，跟远端 tree 比对，只上传**真正变化**的文件
+  C. Trees API：base_tree + 变化项 + 删除项（sha=null）
   D. Commits API 提交
   E. Refs API 更新 main
-  F. Pages API 开启（Deploy from a branch: main / root）
+  F. push 触发 .github/workflows/pages.yml，Actions 负责部署 Pages
 
-关键坑：Blobs API 在**完全空的仓库**上会返回 409 "Git Repository is empty."，
-所以先用 Contents API 推一个引导文件，仓库非空之后其它接口才正常工作。
+三个坑（都踩过）：
+
+  1. Blobs API 在**完全空的仓库**上会返回 409 "Git Repository is empty."，
+     所以首次要用 Contents API 推一个引导文件把 main 分支建出来。
+  2. Trees API **拒绝写 .github/workflows/ 下的文件**（HTTP 404），
+     即使换成 Contents API 也一样（缺 workflow scope）。
+     所以这类文件只能靠 base_tree 从远端继承，或用 GitHub 网页版编辑。
+  3. 连着推太多次会撞上 GitHub **二级速率限制**（secondary rate limit），
+     脚本会识别 403 并自动退避重试。
 """
 import base64
 import hashlib
@@ -25,7 +32,6 @@ import ssl
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -36,6 +42,8 @@ DESCRIPTION = "捏合召唤贴纸相机 —— 拇指和食指捏住再松开，
 UA = "sticker-camera-publisher"
 
 SKIP_DIRS = {".git", "__pycache__", ".idea", ".vscode", "node_modules", "dist"}
+# Trees API 写不了这个前缀，只能从远端继承
+API_UNWRITABLE = ".github/workflows/"
 TOKEN = ""
 OWNER = ""
 
@@ -61,9 +69,17 @@ def api(method, path, body=None, tries=8, timeout=120):
                 txt = r.read().decode()
                 return json.loads(txt) if txt else {}
         except urllib.error.HTTPError as e:
-            last = "HTTP %s %s" % (e.code, e.read().decode()[:300])
-            if e.code in (401, 403, 404, 422):
+            code = e.code
+            detail = e.read().decode()[:300]
+            last = "HTTP %s %s" % (code, detail)
+            # 401 是 token 真没权限，没得救；其余都值得重试
+            if code == 401:
                 break
+            if code == 403 and ("rate limit" in detail.lower() or "abuse" in detail.lower()):
+                wait = 60 + i * 30
+                print("    [限流] 等 %d 秒后重试..." % wait, flush=True)
+                time.sleep(wait)
+                continue
         except (urllib.error.URLError, socket.timeout, ssl.SSLError, OSError) as e:
             last = repr(e)
         time.sleep(2 + i * 2)
@@ -71,9 +87,11 @@ def api(method, path, body=None, tries=8, timeout=120):
 
 
 def collect_files(root):
+    """本地要同步的文件（相对路径, 绝对路径）。"""
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames
+                       if d not in SKIP_DIRS and (not d.startswith(".") or d == ".github")]
         for fn in filenames:
             full = os.path.join(dirpath, fn)
             rel = os.path.relpath(full, root).replace("\\", "/")
@@ -123,16 +141,18 @@ def main():
     OWNER = api("GET", "/user")["login"]
     print("[1] 账号: %s" % OWNER)
 
+    # 先读一下仓库在不在，别一上来就 POST 建仓库（白白吃一次写配额）
     try:
-        r = api("POST", "/user/repos", {
-            "name": REPO_NAME, "description": DESCRIPTION, "private": False,
-            "auto_init": False, "has_issues": True, "has_wiki": False,
-        })
-        print("[2] 已建仓库: %s" % r["html_url"])
-    except RuntimeError as e:
-        if "already exists" in str(e):
-            print("[2] 仓库已存在，继续")
-        else:
+        r = api("GET", "/repos/%s/%s" % (OWNER, REPO_NAME), tries=4)
+        print("[2] 仓库已存在: %s" % r["html_url"])
+    except RuntimeError:
+        try:
+            r = api("POST", "/user/repos", {
+                "name": REPO_NAME, "description": DESCRIPTION, "private": False,
+                "auto_init": False, "has_issues": True, "has_wiki": False,
+            }, tries=4)
+            print("[2] 已建仓库: %s" % r["html_url"])
+        except RuntimeError as e:
             print("[2] 建仓库失败: %s" % e, file=sys.stderr)
             return 1
 
@@ -149,70 +169,87 @@ def main():
         base_sha = boot["commit"]["sha"]
         print("[3] 引导提交已建: %s" % base_sha)
 
-    files = collect_files(ROOT)
-    total = sum(os.path.getsize(f[1]) for f in files)
-    print("[4] 本地 %d 个文件（%.1f MB）" % (len(files), total / 1048576))
-
+    commit = api("GET", "/repos/%s/%s/git/commits/%s" % (OWNER, REPO_NAME, base_sha), tries=6)
+    base_tree = commit["tree"]["sha"]
     remote = fetch_remote_tree(base_sha)
-    reused, changed = [], []
+    print("[4] 远端 tree: %s（%d 个文件）" % (base_tree, len(remote)))
+
+    files = collect_files(ROOT)
+    local_paths = {rel for rel, _ in files}
+    total = sum(os.path.getsize(f[1]) for f in files)
+    print("[5] 本地 %d 个文件（%.1f MB）" % (len(files), total / 1048576))
+
+    changed = []
     for rel, full in files:
-        (reused if remote.get(rel) == git_blob_sha(full) else changed).append(rel)
-    print("[5] 未变化复用 %d 个，需要上传 %d 个: %s"
-          % (len(reused), len(changed), ", ".join(changed) or "（无）"))
+        if rel.startswith(API_UNWRITABLE):
+            # Trees API 写不了这个前缀，只能继承远端那份；
+            # 但如果内容真的变了，要提醒用户去网页版改
+            if remote.get(rel) and remote[rel] != git_blob_sha(full):
+                same = False
+                try:
+                    rb = api("GET", "/repos/%s/%s/git/blobs/%s"
+                             % (OWNER, REPO_NAME, remote[rel]), tries=4)
+                    same = base64.b64decode(rb["content"]).rstrip() == \
+                        open(full, "rb").read().rstrip()
+                except RuntimeError:
+                    same = False
+                if not same:
+                    print("    [注意] %s 与远端不一致：API 改不了 .github/workflows/，"
+                          "请到 GitHub 网页版修改" % rel)
+            continue
+        if remote.get(rel) != git_blob_sha(full):
+            changed.append((rel, full))
+    print("[6] 需要上传 %d 个: %s"
+          % (len(changed), ", ".join(r for r, _ in changed) or "（无）"))
+
+    # 本地删掉了、远端还在的文件 -> 显式置空 sha 让树里删掉
+    removed = [p for p in remote
+               if p not in local_paths and not p.startswith(API_UNWRITABLE)]
+    if removed:
+        print("    同时删除 %d 个远端文件: %s" % (len(removed), ", ".join(removed)))
 
     uploaded = {}
-    todo = [(rel, full) for rel, full in files if rel in set(changed)]
     done = [0]
     t0 = time.time()
-    if todo:
+    if changed:
         with ThreadPoolExecutor(max_workers=5) as ex:
-            for rel, sha, size in ex.map(upload_blob, todo):
+            for rel, sha, size in ex.map(upload_blob, changed):
                 uploaded[rel] = sha
                 done[0] += 1
-                if done[0] % 10 == 0 or done[0] == len(todo):
-                    print("    %d/%d  (%.0fs)" % (done[0], len(todo), time.time() - t0))
+                if done[0] % 10 == 0 or done[0] == len(changed):
+                    print("    %d/%d  (%.0fs)" % (done[0], len(changed), time.time() - t0))
 
-    tree = []
-    for rel, _ in files:
-        sha = uploaded.get(rel) or remote.get(rel) or git_blob_sha(os.path.join(ROOT, rel))
-        tree.append({"path": rel, "mode": "100644", "type": "blob", "sha": sha})
+    # base_tree 继承远端已有文件，只把变化的写进去 —— 传全量树反而会被
+    # .github/workflows/ 那条限制卡住
+    entries = []
+    for rel, _ in changed:
+        entries.append({"path": rel, "mode": "100644", "type": "blob", "sha": uploaded[rel]})
+    for rel in removed:
+        entries.append({"path": rel, "mode": "100644", "type": "blob", "sha": None})
 
-    r = api("POST", "/repos/%s/%s/git/trees" % (OWNER, REPO_NAME), {"tree": tree}, tries=6)
-    tree_sha = r["sha"]
-    print("[6] tree: %s（%d 个文件）" % (tree_sha, len(tree)))
-
-    # 树没变就不要再造一个同内容的 commit，否则每次都会白白触发一次 Pages 重建
-    cur = api("GET", "/repos/%s/%s/git/commits/%s" % (OWNER, REPO_NAME, base_sha), tries=6)
-    if cur.get("tree", {}).get("sha") == tree_sha:
+    if not entries:
         print("[7] 内容与远端完全一致，跳过提交")
         print("[8] main 无需更新")
-        print("\n站点地址: https://%s.github.io/%s/" % (OWNER, REPO_NAME))
-        return 0
+    else:
+        r = api("POST", "/repos/%s/%s/git/trees" % (OWNER, REPO_NAME),
+                {"base_tree": base_tree, "tree": entries}, tries=6)
+        tree_sha = r["sha"]
+        print("[7] tree: %s（改 %d / 删 %d）" % (tree_sha, len(changed), len(removed)))
 
-    r = api("POST", "/repos/%s/%s/git/commits" % (OWNER, REPO_NAME), {
-        "message": "更新贴纸相机",
-        "tree": tree_sha,
-        "parents": [base_sha],
-    }, tries=6)
-    commit_sha = r["sha"]
-    print("[7] commit: %s" % commit_sha)
+        r = api("POST", "/repos/%s/%s/git/commits" % (OWNER, REPO_NAME), {
+            "message": "更新贴纸相机",
+            "tree": tree_sha,
+            "parents": [base_sha],
+        }, tries=6)
+        commit_sha = r["sha"]
+        print("[8] commit: %s" % commit_sha)
 
-    api("PATCH", "/repos/%s/%s/git/refs/heads/main" % (OWNER, REPO_NAME),
-        {"sha": commit_sha, "force": True}, tries=6)
-    print("[8] main 已更新")
+        api("PATCH", "/repos/%s/%s/git/refs/heads/main" % (OWNER, REPO_NAME),
+            {"sha": commit_sha, "force": True}, tries=6)
+        print("[9] main 已更新")
 
-    try:
-        r = api("POST", "/repos/%s/%s/pages" % (OWNER, REPO_NAME),
-                {"source": {"branch": "main", "path": "/"}}, tries=4)
-        print("[9] Pages 已开启: %s" % r.get("html_url"))
-    except RuntimeError as e:
-        low = str(e).lower()
-        if "already exists" in low or "already enabled" in low:
-            print("[9] Pages 已存在")
-        else:
-            print("[9] API 开 Pages 失败（需网页点一下）: %s" % e)
-
-    print("\n站点地址: https://%s.github.io/%s/" % (OWNER, REPO_NAME))
+    print("\n推送完成，push 会触发 .github/workflows/pages.yml 自动部署。")
+    print("站点地址: https://%s.github.io/%s/" % (OWNER, REPO_NAME))
     return 0
 
 

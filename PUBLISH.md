@@ -1,5 +1,15 @@
 # 发布到 GitHub Pages（分享链接）
 
+> ✅ **已经发布好了**
+>
+> | | |
+> | --- | --- |
+> | 仓库 | <https://github.com/bunnyinmarch/sticker-cam>（公开） |
+> | 主页 | <https://bunnyinmarch.github.io/sticker-cam/> |
+> | 嵌入版 | <https://bunnyinmarch.github.io/sticker-cam/embed.html> |
+>
+> 下面是**怎么重新发布**和**另一条路（装 git）**，按需看。
+
 整站是**纯静态**的，没有构建步骤。发布只需要「装 Git → 提交 → 建仓库 → 开 Pages」四步。
 
 发布后的地址形如：
@@ -12,7 +22,26 @@
 
 ---
 
-## 步骤 0 · 装 Git（只需一次）
+## 方式 A：API 直推（推荐，不需要装 git）
+
+本机没装 git、GitHub Release CDN 又下不动安装包时走这条路。仓库里已经带了脚本：
+
+```powershell
+# 1) 授权：打印一个设备码，在浏览器打开 https://github.com/login/device 输入它
+python tools\gh_auth.py
+
+# 2) 推送：建仓库（若不存在）+ 推全部文件 + 刷新 Pages
+python tools\publish_github.py
+```
+
+- token 落在 `tools/.gh_token`，已被 `.gitignore` 排除，**不会进仓库**
+- `publish_github.py` 走 `api.github.com` 的 Contents / Blobs / Trees / Commits / Refs / Pages 接口
+- **坑**：Blobs API 在**完全空的仓库**上会返回 `409 Git Repository is empty.`，
+  所以脚本先用 Contents API 推一个 `.gitkeep` 引导文件把 `main` 分支建出来，再走 blob 流程
+
+---
+
+## 方式 B：装 Git 走标准流程
 
 本机默认没装 Git。用 winget 一条命令：
 

@@ -14,3 +14,6 @@ desktop.ini
 
 # 部署用的成品目录（由 dist/ 复制生成，不入库）
 dist/
+
+# 本地 GitHub token（tools/gh_auth.py 生成，绝不入库）
+tools/.gh_token

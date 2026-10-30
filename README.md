@@ -2,6 +2,14 @@
 
 > 拇指和食指捏住再松开 → 相机绿屏里随机冒出一张贴纸 → 和摄像头画面合成一张照片。
 
+**在线体验：** <https://bunnyinmarch.github.io/sticker-cam/>
+
+| | |
+| --- | --- |
+| 仓库 | <https://github.com/bunnyinmarch/sticker-cam>（公开） |
+| 主页 | <https://bunnyinmarch.github.io/sticker-cam/> |
+| 嵌入版 | <https://bunnyinmarch.github.io/sticker-cam/embed.html> |
+
 一个**零依赖、零构建**的纯静态网页项目。所有资源（MediaPipe wasm、手部模型、字体）都
 已本地化到 `assets/`，断网也能跑。
 
@@ -220,12 +228,17 @@ python tools\make_bg.py --preview        # bg-nodots.jpg → bg-plain.jpg（去�
 python tools\make_hint.py                # 解释中文.JPG → assets/hint-cn.png
 python tools\cut_stickers.py             # lib1~5.jpg → 66 张透明 PNG + manifest.json
 python tools\verify_assets.py            # 自检
-python tools\qa_photo.py              # 导出照片回归校验（默认扫桌面上的 sticker-photo-*.png）
+python tools\qa_photo.py                 # 导出照片回归校验（默认扫桌面上的 sticker-photo-*.png）
+python tools\gh_auth.py                  # 申请 GitHub token（存到 tools/.gh_token，不入库）
+python tools\publish_github.py           # 推送更新到 GitHub 并刷新 Pages
 ```
 
 > `tools/make_hint.py` 默认从
 > 桌面上的 `AI交互图片参考\解释中文.JPG` 取源图，
 > 可以用 `--src` / `--color` / `--width` 覆盖。
+>
+> `tools/publish_github.py` 走 GitHub REST API 直推，**不需要本机装 git 或 gh**。
+> 首次使用先跑 `tools/gh_auth.py` 拿一个设备码授权（token 落在 `tools/.gh_token`，已被 `.gitignore` 排除）。
 
 ### 抠图算法（`tools/cut_stickers.py`）
 

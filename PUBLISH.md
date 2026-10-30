@@ -55,6 +55,12 @@ python tools\publish_github.py
 > 早先用 "Deploy from a branch"（legacy Jekyll 构建器）已不稳定，
 > 同样是内容、构建却会随机 `Page build failed.`，换 Actions 后构建过程可读、可重跑。
 
+> ⚠️ **`.github/workflows/` 下的文件改不了 API**：Trees API 和 Contents API 都会返回
+> `404 Not Found`（GitHub 不允许用 API 改工作流文件）。
+> `tools/publish_github.py` 会自动**继承**远端那份，不会覆盖；
+> 真要改工作流，得去 GitHub 网页版编辑
+> <https://github.com/bunnyinmarch/sticker-cam/edit/main/.github/workflows/pages.yml>。
+
 ---
 
 ## 方式 B：装 Git 走标准流程

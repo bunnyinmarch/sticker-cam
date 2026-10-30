@@ -243,6 +243,8 @@ python tools\publish_github.py           # 推送更新到 GitHub 并刷新 Page
 > 脚本只上传**内容有变化**的文件（本地算 git blob sha 和远端比对），没变的不重传；
 > 内容与远端完全一致时会直接跳过提交，不会白触发一次 Pages 重建。
 > 连续推送容易撞上 GitHub 的**二级速率限制**（`secondary rate limit`），脚本会自动退避重试。
+> 另外 `.github/workflows/` 下的文件**不能用 API 改**（Trees / Contents API 都返回 404），
+> 脚本会继承远端那份；要改工作流请去 GitHub 网页版编辑。
 
 ### 抠图算法（`tools/cut_stickers.py`）
 

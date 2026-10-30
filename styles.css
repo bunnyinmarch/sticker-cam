@@ -1,0 +1,368 @@
+/* ============================================================
+   捏合召唤贴纸相机 —— 页面样式
+   背景为纯白 + 暗红波点（背景图里的粉色饰条已由 tools/make_bg.py 去掉）
+   舞台内部所有尺寸都用 cqw（= 舞台宽度的 1%），保证整体等比缩放
+   ============================================================ */
+
+:root {
+  --page-bg: #ffffff;     /* 页面底色：纯白（背景图里的粉色饰条已去掉） */
+  --ink: #6f6f6f;         /* 主文字（Take a photo） */
+  --ink-soft: #949494;    /* 中文提示等次要文字 */
+  --ink-btn: #8c8c8c;     /* 按钮里的符号 / 文字 */
+  --ink-line: #b3b3b3;    /* 按钮手绘描边 */
+  --dot: #6A0C0C;
+  --hand: "Caveat", "Segoe Print", "Comic Sans MS", cursive;
+  --hand-cn: "Zhi Mang Xing", "STXingkai", "KaiTi", cursive;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--page-bg);
+  color: var(--ink);
+  font-family: var(--hand);
+  -webkit-font-smoothing: antialiased;
+}
+
+body { min-height: 100vh; }
+
+/* ---------------- 舞台 ---------------- */
+
+.stage-wrap {
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 12px 16px 20px;
+  display: flex;
+  justify-content: center;
+}
+
+/* 整页按屏幕自适应：宽度取「容器宽」和「屏幕高换算出的宽」里较小的那个，
+   保证电脑上打开时相机 + 控制区一屏放得下，不需要滚动 */
+.stage {
+  position: relative;
+  width: min(100%, calc((100dvh - 32px) * 1.331));
+  aspect-ratio: 1206 / 906;
+  overflow: hidden;               /* 裁切边缘处的两个圆点 */
+  background: #fff;
+  container-type: inline-size;    /* 内部用 cqw 等比缩放 */
+}
+
+.stage-bg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.dots-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.dot {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--dot);
+  will-change: transform;
+}
+
+/* BACK 爱心命中层：目前纯装饰（§9.3），将来改 pointer-events:auto 即可启用点击 */
+.back-heart {
+  position: absolute;
+  left: 85.99%;
+  top: 1.88%;
+  width: 8.88%;
+  height: 10.38%;
+  pointer-events: none;
+}
+
+/* ---------------- 相机屏幕（绿框） ---------------- */
+
+.screen {
+  position: absolute;
+  left: 22.97%;
+  top: 24.61%;
+  width: 38.06%;
+  height: 38.19%;
+  overflow: hidden;               /* 画面与贴纸都只能出现在绿框内 */
+  background: #0b0b0b;
+  cursor: default;
+}
+
+#video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);         /* 自拍镜像 */
+}
+
+#handOverlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.sticker-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sticker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: center center;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-drag: none;
+  touch-action: none;
+  will-change: transform;
+}
+
+.sticker.dragging { cursor: grabbing; }
+
+.sticker.selected {
+  filter: drop-shadow(0 0 4px #ff4d8d) drop-shadow(0 0 8px rgba(255, 77, 141, 0.55));
+}
+
+.screen-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  background: rgba(8, 8, 8, 0.72);
+  color: #fff;
+  font-family: var(--hand-cn);
+  font-size: 15px;
+  padding: 10px;
+  transition: opacity 0.25s ease;
+}
+
+.screen-hint.hidden { opacity: 0; pointer-events: none; }
+
+/* 加载模型时的轻提示：不遮挡画面，只在角落冒个小条 */
+.screen-hint.soft {
+  background: transparent;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 6px;
+  pointer-events: none;
+}
+
+.screen-hint.soft p {
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 10px;
+}
+
+.screen-hint p { margin: 0; line-height: 1.5; }
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.flash.on { animation: flash 480ms ease-out; }
+
+@keyframes flash {
+  0% { opacity: 0; }
+  18% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
+/* ---------------- 控制区（叠在相机下方的白色区域里） ----------------
+   位置全部换算自「整体参考图」，单位是背景图像素（背景图 1206x906）：
+     相机底边 y=620，按钮行顶 y=670，行高 37
+     Take a photo 顶 y=714，宽度 120
+     中文提示顶 y=771
+   1cqw = 12.06 背景图像素
+   ------------------------------------------------------------- */
+
+.controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 55.56cqw;                 /* = 670 / 1206 * 100 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.btn-row {
+  display: flex;
+  gap: 0.41cqw;                  /* = 5px */
+  justify-content: center;
+  align-items: center;
+  height: 3.07cqw;               /* = 37px */
+}
+
+.btn-row .hand-btn {
+  height: 3.07cqw;
+  display: flex;
+  align-items: center;
+}
+
+.btn-row .hand-btn svg {
+  display: block;
+  height: 100%;
+  width: auto;
+  overflow: visible;
+}
+
+.hand-btn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  line-height: 0;
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+
+.hand-btn svg { display: block; overflow: visible; }
+
+.hand-btn:hover { transform: translateY(-4px); }
+.hand-btn:active { transform: translateY(0) scale(0.96); }
+.hand-btn:focus-visible { outline: 2px dashed var(--ink); outline-offset: 4px; }
+
+.hand-btn.disabled { opacity: 0.38; cursor: default; }
+.hand-btn.disabled:hover { transform: none; }
+
+.hand-btn.small svg { width: 120px; }
+
+/* 「开启摄像头」「下载照片」「重拍」这类纯文字按钮 */
+#camStartBtn,
+#downloadBtn,
+#retakeBtn {
+  font-family: var(--hand-cn);
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink-line);
+  border-radius: 12px;
+  padding: 7px 20px;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.16);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+#camStartBtn:hover,
+#downloadBtn:hover,
+#retakeBtn:hover {
+  background: #fff6fa;
+  transform: translateY(-2px) rotate(-0.6deg);
+  box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.16);
+}
+
+#camStartBtn:active,
+#downloadBtn:active,
+#retakeBtn:active {
+  transform: translateY(1px);
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.16);
+}
+
+/* Take a photo */
+.take-photo {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0.54cqw 0 0;           /* = 6.5px */
+  cursor: pointer;
+  line-height: 0;
+  transition: transform 0.16s ease;
+}
+
+.take-photo svg {
+  display: block;
+  width: 10cqw;                  /* = 120.6px */
+  height: auto;
+  overflow: visible;
+}
+
+.take-photo:hover { transform: translateY(-3px) rotate(-0.6deg); }
+.take-photo:active { transform: scale(0.97); }
+
+/* 中文提示：用参考图「解释中文」的原笔迹裁成的透明 PNG，
+   宽 22.9cqw（= 276 背景图像素，与「整体参考图」里的中文行等宽），
+   高宽比 14.58 由图片自身决定。 */
+.hint-cn {
+  display: block;
+  width: 22.9cqw;
+  height: auto;
+  margin: 1.67cqw auto 0;          /* = 20px */
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* ---------------- 预览弹窗 ---------------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(40, 10, 20, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.modal[hidden] { display: none; }
+
+.modal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: min(920px, 94vw);
+  max-height: 92vh;
+}
+
+.modal-card img {
+  display: block;
+  max-width: 100%;
+  max-height: 76vh;
+  border-radius: 6px;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.45);
+  background: #fff;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ---------------- iframe 嵌入模式 ---------------- */
+
+body[data-embed="1"] .stage-wrap {
+  padding: 0;
+}
+
+body[data-embed="1"] .stage {
+  width: min(100%, calc((100dvh - 0px) * 1.331));
+}
+
+body[data-embed="1"] .modal { background: rgba(255, 255, 255, 0.86); }

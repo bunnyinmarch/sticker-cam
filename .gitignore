@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 系统临时文件
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 本地调试产物（按需保留或删除）
+*.tmp
+*.log
+
+# 部署用的成品目录（由 dist/ 复制生成，不入库）
+dist/

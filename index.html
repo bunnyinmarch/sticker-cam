@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>捏合召唤贴纸相机</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="assets/vendor/fonts.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<main class="stage-wrap">
+  <!-- 舞台：背景图 + 圆点层 + BACK 爱心命中层 + 相机屏幕 -->
+  <div class="stage" id="stage">
+    <img class="stage-bg" src="assets/bg-plain.jpg" alt="白色波点背景与粉色相机">
+    <div class="dots-layer" id="dotsLayer" aria-hidden="true"></div>
+    <!-- 未来可做成可点击控件：改 pointer-events:auto 并绑定 click 即可 -->
+    <div class="back-heart" id="backHeart" title="BACK"></div>
+
+    <div class="screen" id="screen">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="handOverlay" aria-hidden="true"></canvas>
+      <div class="sticker-layer" id="stickerLayer"></div>
+      <div class="screen-hint" id="screenHint">
+        <p id="hintText">点击屏幕开启摄像头</p>
+        <button class="hand-btn small" id="camStartBtn" type="button">开启摄像头</button>
+      </div>
+      <div class="flash" id="flash" aria-hidden="true"></div>
+    </div>
+
+    <!-- 控制区：按钮组 / Take a photo / 中文提示 —— 叠在相机下方的白色区域里 -->
+    <div class="controls">
+      <div class="btn-row" id="btnRow" role="group" aria-label="贴纸编辑"></div>
+      <button class="take-photo" id="takePhoto" type="button" aria-label="Take a photo"></button>
+      <img class="hint-cn" src="assets/hint-cn.png" alt="☆松开拇指和食指，贴纸就会出现☆">
+    </div>
+  </div>
+</main>
+
+<!-- 拍照预览 -->
+<div class="modal" id="previewModal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-label="拍摄结果">
+    <img id="previewImg" alt="拍摄的照片">
+    <div class="modal-actions">
+      <button class="hand-btn" id="downloadBtn" type="button">下载照片</button>
+      <button class="hand-btn" id="retakeBtn" type="button">重拍</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
